@@ -4,24 +4,19 @@ using UnityEngine.InputSystem;
 
 public class PlayerController : MonoBehaviour
 {
-    [SerializeField] float walkSpeed = 7f;
-    [SerializeField] float jumpPower = 5f;
-
-    Vector2 moveInput;
-
-    public bool isGrounded;
-    public bool isJumping;
-
-    public int jumpAmount;
-
-    Rigidbody rb;
-    Animator anim;
+    public float speed = 5.0f; // Speed of the player movement
+    public float jumpForce = 5.0f; // Force of the jump
+    public Transform cameraTransform; // Reference to the camera transform
+    private Vector2 moveInput;
+    private Rigidbody rb;
+    private Animator anim;
+    private bool isGrounded;
 
     void Start()
     {
-        //gets the needed components
+        // Get the Rigidbody and Animator components attached to the player
         rb = GetComponent<Rigidbody>();
-        anim = GetComponentInChildren<Animator>();
+        anim = GetComponent<Animator>();
 
         anim.SetBool("isRunning", false);
         anim.SetBool("isJumping", false);
@@ -30,97 +25,129 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-        //so you can run and turn
-        Run();
-        RotateTowardsMovementDirection();
-
-        if (moveInput.sqrMagnitude < 0.01f && isGrounded) // Check if there's no input and the player is on the ground
-        {
-            anim.SetBool("isRunning", false);
-        }
+        // Update the character's rotation and animations
+        HandlePlayerDirection();
+        UpdateAnimations();
     }
 
-    //how to run
-    void Run()
+    private void FixedUpdate()
     {
-        // Create velocity in world space using movement input
-        Vector3 playerVelocity = new Vector3(moveInput.x * walkSpeed, rb.velocity.y, moveInput.y * walkSpeed);
-
-        // Apply the velocity to the Rigidbody
-        rb.velocity = transform.TransformDirection(playerVelocity);
+        // Apply the movement in FixedUpdate for consistent physics updates
+        MovePlayer();
     }
 
-    void RotateTowardsMovementDirection()
-    {
-        // Calculate the direction vector based on the movement input
-        Vector3 movementDirection = new Vector3(moveInput.x, 0f, moveInput.y);
-
-        if (movementDirection.sqrMagnitude > 0.01f) // Check if there's significant movement input
-        {
-            // Convert the movement direction to world space
-            Vector3 worldDirection = transform.TransformDirection(movementDirection);
-
-            if (moveInput.y >= 0)
-            {
-                // Compute the target rotation based on the movement direction
-                Quaternion targetRotation = Quaternion.LookRotation(worldDirection, Vector3.up);
-
-                // Smoothly rotate the character to face the target direction
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * 7f);
-            }
-
-        }
-    }
-
-
-    //how to actually move when holding button
-    public void OnMovement(InputAction.CallbackContext context)
+    // Called by Unity Input System when "Move" action is triggered
+    public void OnMove(InputAction.CallbackContext context)
     {
         moveInput = context.ReadValue<Vector2>();
-        if (isGrounded == true)
+    }
+
+    // Called by Unity Input System when "Jump" action is triggered
+    public void OnJump(InputAction.CallbackContext context)
+    {
+        if (context.performed && isGrounded)
+        {
+            JumpPlayer();
+        }
+    }
+
+    private void MovePlayer()
+    {
+        if (rb != null)
+        {
+            // Get the camera's forward and right directions
+            Vector3 cameraForward = cameraTransform.forward;
+            Vector3 cameraRight = cameraTransform.right;
+
+            // Flatten the camera's forward and right directions to avoid vertical influence
+            cameraForward.y = 0;
+            cameraRight.y = 0;
+
+            cameraForward.Normalize();
+            cameraRight.Normalize();
+
+            // Calculate movement direction relative to the camera
+            Vector3 movement = (cameraForward * moveInput.y + cameraRight * moveInput.x).normalized * speed * Time.fixedDeltaTime;
+            rb.MovePosition(rb.position + movement);
+        }
+    }
+
+    private void JumpPlayer()
+    {
+        if (rb != null)
+        {
+            rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+            isGrounded = false;
+        }
+    }
+
+    private void HandlePlayerDirection()
+    {
+        if (moveInput.magnitude > 0)
+        {
+            // Calculate movement direction relative to the camera
+            Vector3 cameraForward = cameraTransform.forward;
+            Vector3 cameraRight = cameraTransform.right;
+
+            cameraForward.y = 0;
+            cameraRight.y = 0;
+
+            cameraForward.Normalize();
+            cameraRight.Normalize();
+
+            Vector3 direction = (cameraForward * moveInput.y + cameraRight * moveInput.x).normalized;
+
+            if (direction != Vector3.zero)
+            {
+                Quaternion toRotation = Quaternion.LookRotation(direction);
+                transform.rotation = Quaternion.RotateTowards(transform.rotation, toRotation, 700 * Time.deltaTime);
+            }
+        }
+    }
+
+    private void UpdateAnimations()
+    {
+        // Update running animation
+        if (moveInput.magnitude > 0 && isGrounded)
         {
             anim.SetBool("isRunning", true);
         }
-    }
-
-    //jumping when holding button
-    public void OnJump(InputAction.CallbackContext context)
-    {
-        if (jumpAmount <= 1)
+        else
         {
-            if (isGrounded)
+            anim.SetBool("isRunning", false);
+        }
+
+        // Update jumping and falling animations
+        if (!isGrounded)
+        {
+            if (rb.velocity.y > 0)
             {
-                jumpAmount++;
                 anim.SetBool("isJumping", true);
-                anim.SetBool("isRunning", false);
-                if (jumpAmount >= 1)
-                {
-                    anim.SetBool("isRunning", false);
-                    anim.SetBool("isFalling", true);
-                }
-                rb.AddForce(new Vector3(0, jumpPower, 0), ForceMode.Impulse);
+                anim.SetBool("isFalling", false);
+            }
+            else if (rb.velocity.y < 0)
+            {
+                anim.SetBool("isJumping", false);
+                anim.SetBool("isFalling", true);
             }
         }
-    }
-
-    //when grounded
-    private void OnCollisionEnter(Collision collision)
-    {
-        if (collision.collider.CompareTag("Ground"))
+        else
         {
-            jumpAmount = 0;
-            isGrounded = true;
-            anim.SetBool("isFalling", false);
             anim.SetBool("isJumping", false);
+            anim.SetBool("isFalling", false);
         }
     }
 
-    //when not grounded
-    private void OnCollisionExit(Collision collision)
+    private void OnCollisionEnter(Collision collision)
     {
-        if (collision.collider.CompareTag("Ground"))
+        // Check if the player is grounded
+        if (collision.gameObject.CompareTag("Ground"))
         {
-            isGrounded = false;
+            isGrounded = true;
+        }
+        if (collision.collider.CompareTag("Death"))
+        {
+            //Destroy(this.gameObject); // Destroy the player
         }
     }
 }
